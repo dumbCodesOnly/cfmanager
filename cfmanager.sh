@@ -1,6 +1,6 @@
 #!/bin/bash
 # ╔══════════════════════════════════════════════════════════════════╗
-# ║           CF-MANAGER v3.0 — Cloudflare CLI Dashboard            ║
+# ║           CF-MANAGER v3.1 — Cloudflare CLI Dashboard            ║
 # ║        Designed for Termux | github-sync | multi-account        ║
 # ╚══════════════════════════════════════════════════════════════════╝
 #
