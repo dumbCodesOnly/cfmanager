@@ -6886,6 +6886,25 @@ new_to_all() {
   fi
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # MODE C — Cron triggers (same schedule(s) applied to every account,
+  # regardless of naming/binding strategy above)
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  local -a auto_cron_list=()
+  echo -ne "${Y}Add cron trigger(s) to every deployed worker? [y/N]:${NC} "
+  local _cron_ans; read -r _cron_ans
+  if [[ "$_cron_ans" =~ ^[Yy]$ ]]; then
+    while true; do
+      local _c
+      _c=$(_cron_builder) && [[ -n "$_c" ]] && auto_cron_list+=("$_c")
+      echo -ne "${DM}Add another cron trigger? [y/N]:${NC} "
+      local _cron_more; read -r _cron_more
+      [[ "$_cron_more" =~ ^[Yy]$ ]] || break
+    done
+    [[ ${#auto_cron_list[@]} -eq 0 ]] && warn "No valid cron triggers entered — skipping."
+  fi
+  echo ""
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   # Source file (chosen once, same code deployed everywhere)
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   # Use shared_name as a placeholder filename; for random-name mode
@@ -7074,6 +7093,9 @@ new_to_all() {
     else
       printf "       ${DM}bindings: manual wizard per account${NC}\n"
     fi
+    if [[ ${#auto_cron_list[@]} -gt 0 ]]; then
+      printf "       ${Y}Cron:   %d trigger(s)${NC}\n" "${#auto_cron_list[@]}"
+    fi
   done
   echo ""
   confirm "Proceed with ${#valid_accounts[@]} account(s)?" || { press_enter; return; }
@@ -7193,6 +7215,16 @@ new_to_all() {
         done
       fi
 
+      if [[ ${#auto_cron_list[@]} -gt 0 ]]; then
+        echo -ne "  ${C}Setting ${#auto_cron_list[@]} cron trigger(s)...${NC}"
+        if _cron_push "$name" "${auto_cron_list[@]}" >/dev/null 2>&1; then
+          echo -e " ${SYM_OK}"
+          log "new_to_all: cron set for $name on $acct (${#auto_cron_list[@]} trigger(s))"
+        else
+          echo -e " ${SYM_WARN}"
+        fi
+      fi
+
       echo ""
       echo -ne "${W}Enable workers.dev domain for '${C}${name}${W}'? [y/N]:${NC} "
       local _sub_ans
@@ -7286,15 +7318,17 @@ new_to_all() {
             _d1ex_r=$(cf_get "/accounts/${CF_ACCOUNT_ID}/d1/database?per_page=${API_PAGE_D1}")
             _d1id=$(echo "$_d1ex_r" | jq -r --arg n "$auto_d1_existing"               '.result[]? | select(.name==$n) | .uuid' 2>/dev/null | head -1)
           else
+            local _d1name
+            _d1name="${name}-$(echo "$auto_d1_var" | tr '[:upper:]' '[:lower:]')"
             local _d1r
             _d1r=$(cf_post "/accounts/${CF_ACCOUNT_ID}/d1/database" \
-              "$(jq -n --arg n "$name" '{name:$n}')")
+              "$(jq -n --arg n "$_d1name" '{name:$n}')")
             if cf_check "$_d1r"; then
               _d1id=$(echo "$_d1r" | jq -r '.result.uuid')
             else
               local _d1ex_r
               _d1ex_r=$(cf_get "/accounts/${CF_ACCOUNT_ID}/d1/database?per_page=${API_PAGE_D1}")
-              _d1id=$(echo "$_d1ex_r" | jq -r --arg n "$name"                 '.result[]? | select(.name==$n) | .uuid' 2>/dev/null | head -1)
+              _d1id=$(echo "$_d1ex_r" | jq -r --arg n "$_d1name"                 '.result[]? | select(.name==$n) | .uuid' 2>/dev/null | head -1)
             fi
           fi
           if [[ -n "$_d1id" ]]; then
@@ -7302,9 +7336,10 @@ new_to_all() {
             local _d1bindings
             _d1bindings=$(_env_get_bindings "$name" 2>/dev/null) || _d1bindings="[]"
             _d1bindings=$(echo "$_d1bindings" | jq --arg n "$auto_d1_var" '[.[] | select(.name != $n)]')
-            local _d1updated
+            local _d1updated _d1dbname
+            _d1dbname="${auto_d1_existing:-${name}-$(echo "$auto_d1_var" | tr '[:upper:]' '[:lower:]')}"
             _d1updated=$(echo "$_d1bindings" | jq \
-              --arg n "$auto_d1_var" --arg id "$_d1id" --arg dbn "$name" \
+              --arg n "$auto_d1_var" --arg id "$_d1id" --arg dbn "$_d1dbname" \
               '. + [{type:"d1", name:$n, id:$id, database_name:$dbn}]')
             _env_put_bindings "$name" "$_d1updated" 2>/dev/null && _bsum+=" D1:${auto_d1_var}"
             log "new_to_all: D1 bound $name.$auto_d1_var=$_d1id on $acct"
@@ -7319,15 +7354,17 @@ new_to_all() {
             _kvex_r=$(cf_get "/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces?per_page=${API_PAGE_KV}")
             _kvid=$(echo "$_kvex_r" | jq -r --arg t "$auto_kv_existing"               '.result[]? | select(.title==$t) | .id' 2>/dev/null | head -1)
           else
+            local _kvname
+            _kvname="${name}-$(echo "$auto_kv_var" | tr '[:upper:]' '[:lower:]')"
             local _kvr
             _kvr=$(cf_post "/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces" \
-              "$(jq -n --arg t "$name" '{title:$t}')")
+              "$(jq -n --arg t "$_kvname" '{title:$t}')")
             if cf_check "$_kvr"; then
               _kvid=$(echo "$_kvr" | jq -r '.result.id')
             else
               local _kvex_r
               _kvex_r=$(cf_get "/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces?per_page=${API_PAGE_KV}")
-              _kvid=$(echo "$_kvex_r" | jq -r --arg t "$name"                 '.result[]? | select(.title==$t) | .id' 2>/dev/null | head -1)
+              _kvid=$(echo "$_kvex_r" | jq -r --arg t "$_kvname"                 '.result[]? | select(.title==$t) | .id' 2>/dev/null | head -1)
             fi
           fi
           if [[ -n "$_kvid" ]]; then
@@ -7351,7 +7388,7 @@ new_to_all() {
             _r2name="$auto_r2_existing"
             _r2ok=true
           else
-            _r2name=$(echo "$name" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+            _r2name=$(echo "${name}-${auto_r2_var}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
             local _r2r
             _r2r=$(cf_post "/accounts/${CF_ACCOUNT_ID}/r2/buckets" \
               "$(jq -n --arg n "$_r2name" '{name:$n}')")
@@ -7374,6 +7411,17 @@ new_to_all() {
               '. + [{type:"r2_bucket", name:$n, bucket_name:$bn}]')
             _env_put_bindings "$name" "$_r2updated" 2>/dev/null && _bsum+=" R2:${auto_r2_var}"
             log "new_to_all: R2 bound $name.$auto_r2_var=$_r2name on $acct"
+          fi
+        fi
+
+        if [[ ${#auto_cron_list[@]} -gt 0 ]]; then
+          _tui_st "Setting cron triggers..."
+          local _cron_payload _cron_resp
+          _cron_payload=$(printf '%s\n' "${auto_cron_list[@]}" | jq -R -s 'split("\n") | map(select(length > 0)) | map({cron: .})')
+          _cron_resp=$(cf_put "/accounts/${CF_ACCOUNT_ID}/workers/scripts/${name}/schedules" "$_cron_payload")
+          if cf_check "$_cron_resp" 2>/dev/null; then
+            _bsum+=" Cron:${#auto_cron_list[@]}"
+            log "new_to_all: cron set for $name on $acct (${#auto_cron_list[@]} trigger(s))"
           fi
         fi
 
@@ -9539,6 +9587,20 @@ _flow_apply_extras() {
   local sub_enabled
   sub_enabled=$(printf '%s' "$flow_json" | jq -r '.subdomain.enabled // false')
   [[ "$sub_enabled" == "true" ]] && _flow_set_subdomain "$worker"
+
+  n=$(printf '%s' "$flow_json" | jq '.bindings.cron // [] | length')
+  if [[ "$n" -gt 0 ]]; then
+    local -a _flow_cron_list=()
+    for ((i = 0; i < n; i++)); do
+      _flow_cron_list+=("$(printf '%s' "$flow_json" | jq -r ".bindings.cron[$i]")")
+    done
+    if _cron_push "$worker" "${_flow_cron_list[@]}" >/dev/null 2>&1; then
+      success "Cron triggers set: ${n} schedule(s)"
+      log "flow: cron triggers set for ${worker} (${n})"
+    else
+      warn "Could not set cron triggers for '${worker}'."
+    fi
+  fi
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -9927,6 +9989,20 @@ flow_create() {
     secret_json=$(echo "$secret_json" | jq --arg n "$v" --arg m "$smode" '. + [{name:$n, mode:$m}]')
   done
 
+  local cron_json="[]"
+  echo -e "\n${Y}Cron triggers${NC} ${DM}(schedules applied to every worker this flow deploys):${NC}"
+  echo -ne "${W}Add cron trigger(s)? [y/N]:${NC} "
+  local cron_ans; read -r cron_ans
+  if [[ "$cron_ans" =~ ^[Yy]$ ]]; then
+    while true; do
+      local c
+      c=$(_cron_builder) && [[ -n "$c" ]] && cron_json=$(echo "$cron_json" | jq --arg c "$c" '. + [$c]')
+      echo -ne "${DM}Add another cron trigger? [y/N]:${NC} "
+      local cron_more; read -r cron_more
+      [[ "$cron_more" =~ ^[Yy]$ ]] || break
+    done
+  fi
+
   echo -ne "\n${W}Enable Logs & Traces? [y/N]:${NC} "
   local obs_ans obs_enabled=false lr=1 tr=1
   read -r obs_ans
@@ -9991,7 +10067,7 @@ flow_create() {
     --arg smode "$smode" --arg spath "$spath" \
     --arg nmode "$nmode" --arg nvalue "$nvalue" \
     --argjson kv "$kv_json" --argjson d1 "$d1_json" --argjson r2 "$r2_json" \
-    --argjson envv "$env_json" --argjson secrets "$secret_json" \
+    --argjson envv "$env_json" --argjson secrets "$secret_json" --argjson cron "$cron_json" \
     --argjson obs_enabled "$obs_enabled" --argjson lr "$lr" --argjson tr "$tr" \
     --argjson sub_enabled "$sub_enabled" \
     --argjson post_deploy "$post_deploy_json" \
@@ -10000,7 +10076,7 @@ flow_create() {
        created: $created,
        source: { mode: $smode, path: $spath },
        naming: { mode: $nmode, value: $nvalue },
-       bindings: { kv: $kv, d1: $d1, r2: $r2, env: $envv, secrets: $secrets },
+       bindings: { kv: $kv, d1: $d1, r2: $r2, env: $envv, secrets: $secrets, cron: $cron },
        observability: { enabled: $obs_enabled, log_rate: $lr, trace_rate: $tr },
        subdomain: { enabled: $sub_enabled },
        post_deploy: $post_deploy
