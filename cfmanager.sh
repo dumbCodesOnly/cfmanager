@@ -3606,6 +3606,33 @@ _cron_push() {
   fi
 }
 
+# Add cron trigger(s) to a worker WITHOUT wiping ones it already has.
+# Cloudflare's schedules endpoint is a full-replace PUT (see _cron_push),
+# so a deploy flow that just PUTs its own trigger list silently destroys
+# any unrelated cron schedules already on that worker (e.g. re-deploying
+# an existing worker via new_to_all/flows). This fetches the current
+# schedules first and unions them with the new ones (skipping exact
+# duplicates) before pushing.
+# Use this for "add as a side effect of deploy" call sites (new_to_all,
+# flows); the explicit cron menu (worker_cron_menu) still uses _cron_push
+# directly since replacing/clearing is the deliberate intent there.
+#   _cron_merge_push worker cron1 [cron2 ...]
+_cron_merge_push() {
+  local worker="$1"; shift
+  local -a existing=()
+  local _resp
+  _resp=$(cf_get "/accounts/${CF_ACCOUNT_ID}/workers/scripts/${worker}/schedules" 2>/dev/null)
+  cf_check "$_resp" 2>/dev/null && mapfile -t existing < <(echo "$_resp" | jq -r '.result.schedules[]?.cron // empty')
+  local -a merged=("${existing[@]}")
+  local c e dup
+  for c in "$@"; do
+    dup=false
+    for e in "${existing[@]}"; do [[ "$e" == "$c" ]] && dup=true && break; done
+    [[ "$dup" == "false" ]] && merged+=("$c")
+  done
+  _cron_push "$worker" "${merged[@]}"
+}
+
 # _cron_prompt_time HH_VAR MM_VAR
 # Prompts for a HH:MM (24h) time and stores the numeric parts (no leading
 # zero ambiguity) into the two namerefs. Returns 1 on invalid input.
@@ -6343,9 +6370,9 @@ push_to_all() {
     local t_acct="${t%%::*}"
     local t_worker="${t#*::}"
     printf "  ${C}%-20s${NC} → worker ${BLD}%s${NC}\n" "$t_acct" "$t_worker"
-    [[ "$pa_d1" == "true" ]] && printf "       ${M}D1:      new '%s'  → env.%s${NC}\n" "$t_worker" "$pa_d1_var"
-    [[ "$pa_kv" == "true" ]] && printf "       ${B}KV:      new '%s'  → env.%s${NC}\n" "$t_worker" "$pa_kv_var"
-    [[ "$pa_r2" == "true" ]] && printf "       ${G}R2:      new '%s'  → env.%s${NC}\n" "$t_worker" "$pa_r2_var"
+    [[ "$pa_d1" == "true" ]] && printf "       ${M}D1:      new '%s-%s'  → env.%s${NC}\n" "$t_worker" "$(echo "$pa_d1_var" | tr '[:upper:]' '[:lower:]')" "$pa_d1_var"
+    [[ "$pa_kv" == "true" ]] && printf "       ${B}KV:      new '%s-%s'  → env.%s${NC}\n" "$t_worker" "$(echo "$pa_kv_var" | tr '[:upper:]' '[:lower:]')" "$pa_kv_var"
+    [[ "$pa_r2" == "true" ]] && printf "       ${G}R2:      new '%s-%s'  → env.%s${NC}\n" "$t_worker" "$(echo "$pa_r2_var" | tr '[:upper:]' '[:lower:]')" "$pa_r2_var"
     if [[ ${#pa_secret_names[@]} -gt 0 ]]; then
       local _sn; for _sn in "${pa_secret_names[@]}"; do
         printf "       ${Y}Secret:  %s${NC}\n" "$_sn"
@@ -6422,17 +6449,23 @@ push_to_all() {
       [[ "$pa_r2" == "true" ]] && _create_steps+="R2 "
       [[ -n "$_create_steps" ]] && _tui_st "Creating ${_create_steps% }..."
 
+      # Resource names are suffixed with the lowercased binding var
+      # (${t_worker}-db, ${t_worker}-kv, ...) to match new_to_all's and
+      # flows' naming convention and avoid collisions when multiple
+      # workers/bindings share a worker name prefix.
+      local pa_d1name="${t_worker}-$(echo "$pa_d1_var" | tr '[:upper:]' '[:lower:]')"
+      local pa_kvname="${t_worker}-$(echo "$pa_kv_var" | tr '[:upper:]' '[:lower:]')"
       if [[ "$pa_d1" == "true" ]]; then
         (cf_post "/accounts/${CF_ACCOUNT_ID}/d1/database" \
-          "$(jq -n --arg n "$t_worker" '{name:$n}')" > "${_cr_tmp}/d1.json") &
+          "$(jq -n --arg n "$pa_d1name" '{name:$n}')" > "${_cr_tmp}/d1.json") &
       fi
       if [[ "$pa_kv" == "true" ]]; then
         (cf_post "/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces" \
-          "$(jq -n --arg t "$t_worker" '{title:$t}')" > "${_cr_tmp}/kv.json") &
+          "$(jq -n --arg t "$pa_kvname" '{title:$t}')" > "${_cr_tmp}/kv.json") &
       fi
       if [[ "$pa_r2" == "true" ]]; then
         local _r2name
-        _r2name=$(echo "$t_worker" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+        _r2name=$(echo "${t_worker}-${pa_r2_var}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
         (cf_post "/accounts/${CF_ACCOUNT_ID}/r2/buckets" \
           "$(jq -n --arg n "$_r2name" '{name:$n}')" > "${_cr_tmp}/r2.json") &
       fi
@@ -6449,18 +6482,18 @@ push_to_all() {
         pa_d1r=$(cat "${_cr_tmp}/d1.json" 2>/dev/null || echo '{}')
         if cf_check "$pa_d1r"; then
           pa_db_id=$(echo "$pa_d1r" | jq -r '.result.uuid')
-          log "push_to_all: D1 created $t_worker ($pa_db_id) on $t_acct"
+          log "push_to_all: D1 created $pa_d1name ($pa_db_id) on $t_acct"
         else
           local _d1ex
           _d1ex=$(cf_get "/accounts/${CF_ACCOUNT_ID}/d1/database?per_page=${API_PAGE_D1}")
-          pa_db_id=$(echo "$_d1ex" | jq -r --arg n "$t_worker" \
+          pa_db_id=$(echo "$_d1ex" | jq -r --arg n "$pa_d1name" \
             '.result[]? | select(.name==$n) | .uuid' 2>/dev/null | head -1)
-          [[ -n "$pa_db_id" ]] && log "push_to_all: D1 already existed $t_worker ($pa_db_id) on $t_acct"
+          [[ -n "$pa_db_id" ]] && log "push_to_all: D1 already existed $pa_d1name ($pa_db_id) on $t_acct"
         fi
         if [[ -n "$pa_db_id" ]]; then
           _combined=$(echo "$_combined" | jq --arg n "$pa_d1_var" '[.[] | select(.name != $n)]')
           _combined=$(echo "$_combined" | jq \
-            --arg n "$pa_d1_var" --arg id "$pa_db_id" --arg dbn "$t_worker" \
+            --arg n "$pa_d1_var" --arg id "$pa_db_id" --arg dbn "$pa_d1name" \
             '. + [{type:"d1", name:$n, id:$id, database_name:$dbn}]')
         fi
       fi
@@ -6470,11 +6503,11 @@ push_to_all() {
         pa_kvr=$(cat "${_cr_tmp}/kv.json" 2>/dev/null || echo '{}')
         if cf_check "$pa_kvr"; then
           pa_kv_id=$(echo "$pa_kvr" | jq -r '.result.id')
-          log "push_to_all: KV created $t_worker ($pa_kv_id) on $t_acct"
+          log "push_to_all: KV created $pa_kvname ($pa_kv_id) on $t_acct"
         else
           local _kvex
           _kvex=$(cf_get "/accounts/${CF_ACCOUNT_ID}/storage/kv/namespaces?per_page=${API_PAGE_KV}")
-          pa_kv_id=$(echo "$_kvex" | jq -r --arg t "$t_worker" \
+          pa_kv_id=$(echo "$_kvex" | jq -r --arg t "$pa_kvname" \
             '.result[]? | select(.title==$t) | .id' 2>/dev/null | head -1)
         fi
         if [[ -n "$pa_kv_id" ]]; then
@@ -6488,7 +6521,7 @@ push_to_all() {
       if [[ "$pa_r2" == "true" ]]; then
         local pa_r2r
         pa_r2r=$(cat "${_cr_tmp}/r2.json" 2>/dev/null || echo '{}')
-        pa_r2name_final=$(echo "$t_worker" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
+        pa_r2name_final=$(echo "${t_worker}-${pa_r2_var}" | tr '[:upper:]' '[:lower:]' | tr '_' '-')
         if cf_check "$pa_r2r"; then
           pa_r2ok=true
           log "push_to_all: R2 created $pa_r2name_final on $t_acct"
@@ -7217,7 +7250,7 @@ new_to_all() {
 
       if [[ ${#auto_cron_list[@]} -gt 0 ]]; then
         echo -ne "  ${C}Setting ${#auto_cron_list[@]} cron trigger(s)...${NC}"
-        if _cron_push "$name" "${auto_cron_list[@]}" >/dev/null 2>&1; then
+        if _cron_merge_push "$name" "${auto_cron_list[@]}" >/dev/null 2>&1; then
           echo -e " ${SYM_OK}"
           log "new_to_all: cron set for $name on $acct (${#auto_cron_list[@]} trigger(s))"
         else
@@ -7416,12 +7449,27 @@ new_to_all() {
 
         if [[ ${#auto_cron_list[@]} -gt 0 ]]; then
           _tui_st "Setting cron triggers..."
+          # Merge with whatever schedules the worker already has instead of
+          # blindly replacing (Cloudflare's schedules PUT is full-replace,
+          # and a redeploy of a pre-existing worker must not silently wipe
+          # its own unrelated cron triggers).
+          local -a _cron_existing=()
+          local _cron_exist_resp
+          _cron_exist_resp=$(cf_get "/accounts/${CF_ACCOUNT_ID}/workers/scripts/${name}/schedules" 2>/dev/null)
+          cf_check "$_cron_exist_resp" 2>/dev/null && mapfile -t _cron_existing < <(echo "$_cron_exist_resp" | jq -r '.result.schedules[]?.cron // empty')
+          local -a _cron_merged=("${_cron_existing[@]}")
+          local _cc _ce _cdup
+          for _cc in "${auto_cron_list[@]}"; do
+            _cdup=false
+            for _ce in "${_cron_existing[@]}"; do [[ "$_ce" == "$_cc" ]] && _cdup=true && break; done
+            [[ "$_cdup" == "false" ]] && _cron_merged+=("$_cc")
+          done
           local _cron_payload _cron_resp
-          _cron_payload=$(printf '%s\n' "${auto_cron_list[@]}" | jq -R -s 'split("\n") | map(select(length > 0)) | map({cron: .})')
+          _cron_payload=$(printf '%s\n' "${_cron_merged[@]}" | jq -R -s 'split("\n") | map(select(length > 0)) | map({cron: .})')
           _cron_resp=$(cf_put "/accounts/${CF_ACCOUNT_ID}/workers/scripts/${name}/schedules" "$_cron_payload")
           if cf_check "$_cron_resp" 2>/dev/null; then
             _bsum+=" Cron:${#auto_cron_list[@]}"
-            log "new_to_all: cron set for $name on $acct (${#auto_cron_list[@]} trigger(s))"
+            log "new_to_all: cron set for $name on $acct (${#auto_cron_list[@]} trigger(s), ${#_cron_merged[@]} total after merge)"
           fi
         fi
 
@@ -9594,7 +9642,7 @@ _flow_apply_extras() {
     for ((i = 0; i < n; i++)); do
       _flow_cron_list+=("$(printf '%s' "$flow_json" | jq -r ".bindings.cron[$i]")")
     done
-    if _cron_push "$worker" "${_flow_cron_list[@]}" >/dev/null 2>&1; then
+    if _cron_merge_push "$worker" "${_flow_cron_list[@]}" >/dev/null 2>&1; then
       success "Cron triggers set: ${n} schedule(s)"
       log "flow: cron triggers set for ${worker} (${n})"
     else
