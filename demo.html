@@ -292,6 +292,9 @@
       <div class="note-card" data-id="4"><div class="tag">05 · D1</div><p>Query a database directly, or copy table data between databases in batches during a rename/sync.</p></div>
       <div class="note-card" data-id="5"><div class="tag">06 · Rollback</div><p>Every deploy is backed up locally first, so a bad push is one confirm away from undone.</p></div>
       <div class="note-card" data-id="6"><div class="tag">07 · GitHub sync</div><p>Pushes the working worker straight to a linked repo branch — deploy and version control in the same step.</p></div>
+      <div class="note-card" data-id="7"><div class="tag">08 · Push to All</div><p>One worker, redeployed across every stored account at once — a live TUI tracks each account's row in parallel, existing bindings snapshotted and restored automatically.</p></div>
+      <div class="note-card" data-id="8"><div class="tag">09 · New to All</div><p>Create-and-deploy across every account in one pass — pick a naming strategy, auto-bind fresh D1/KV/R2 per account, add cron triggers, all from one wizard.</p></div>
+      <div class="note-card" data-id="9"><div class="tag">10 · Flows</div><p>Save a full deploy config once — source, bindings, cron, observability — and replay it across every account, auto-registering each result with an ops panel.</p></div>
     </div>
   </div>
 
@@ -367,6 +370,42 @@
     { t:'result', text:'  committing worker.js + wrangler.toml...' },
     { t:'ok', text:'✓ pushed 2 files · commit 9c1e4ab' },
 
+    { note:7, t:'head', text:'PUSH TO ALL' },
+    { t:'prompt', text:'> Workers → pa' },
+    { t:'input', text:'  Source: edge-router.js   Secret: RATE_LIMIT_KEY •••• queued' },
+    { t:'result', text:
+`  Account              Worker            Status
+  acme-labs            edge-router       ⠴ Deploying worker...
+  acme-staging         edge-router       ⠦ Restoring 2 binding(s)...
+  acme-eu               edge-router       ✓ Done
+  [██████████░░░░░░]  62%   1✓ 2▶ 0…` },
+    { t:'ok', text:'✓ 3 succeeded  0 failed  out of 3 total' },
+
+    { note:8, t:'head', text:'NEW TO ALL' },
+    { t:'prompt', text:'> Workers → na' },
+    { t:'menu', text:'  ', parts:[['1','Same name'],['2','Random name'],['3','Prefix + random']]},
+    { t:'input', text:'> 3   prefix: promo-drop' },
+    { t:'result', text:
+`  Account              Worker             Status
+  acme-labs            promo-drop-rq7r    ✓ D1 KV R2 workers.dev
+  acme-staging         promo-drop-9f2k    ✓ D1 KV R2 workers.dev
+  acme-eu               promo-drop-lm03    ⠋ Creating D1...
+  [████████████░░░░]  78%   2✓ 1▶ 0…` },
+    { t:'ok', text:'✓ 3 succeeded  0 failed  out of 3 total' },
+
+    { note:9, t:'head', text:'FLOWS' },
+    { t:'prompt', text:'> Flows → run "onboarding-api" → deploy all' },
+    { t:'result', text:
+`  ━━ acme-labs ━━
+  ✓ onboarding-api deployed
+  ✓ D1 bound: env.DB → onboarding-api-db
+  ✓ Registered with manager target 'prod-manager'
+
+  ━━ acme-staging ━━
+  ✓ onboarding-api deployed
+  ✓ Registered with manager target 'prod-manager'` },
+    { t:'ok', text:'✓ flow "onboarding-api" replayed · 2 accounts' },
+
     { t:'gap' },
     { t:'prompt', text:'> ', final:true},
   ];
@@ -441,7 +480,7 @@
         el.className='prompt';
         el.innerHTML='&gt; <span class="cursor"></span>';
         term.appendChild(el);
-        statusEl.textContent = 'done — sample session, 7 screens';
+        statusEl.textContent = 'done — sample session, 10 screens';
         return;
       }
 
