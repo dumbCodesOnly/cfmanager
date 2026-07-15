@@ -1,0 +1,482 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>cf-manager — sample session</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
+
+  :root{
+    --bg:#0D0F0C;
+    --panel:#141813;
+    --panel2:#10130F;
+    --hair:#262B22;
+    --text:#D9E0D3;
+    --dim:#7C8A74;
+    --green:#7FD858;
+    --green-dim:#2E4522;
+    --red:#FF6B6B;
+    --yellow:#E8C547;
+    --cyan:#5FD1D6;
+    --orange:#F6821F;
+    --radius:4px;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    min-height:100vh;
+    padding:6vw 5vw 10vw;
+    background-image:
+      radial-gradient(circle at 12% 6%, rgba(127,216,88,0.05), transparent 42%),
+      radial-gradient(circle at 88% 92%, rgba(246,130,31,0.045), transparent 40%);
+  }
+  .wrap{max-width:920px;margin:0 auto;}
+
+  .eyebrow{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11.5px;
+    letter-spacing:0.14em;
+    color:var(--green);
+    text-transform:uppercase;
+    margin-bottom:14px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .eyebrow .dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);}
+
+  h1{
+    font-family:'JetBrains Mono',monospace;
+    font-weight:700;
+    font-size:clamp(2.2rem,6.4vw,3.4rem);
+    letter-spacing:-0.01em;
+    margin:0 0 8px;
+    line-height:1;
+  }
+  h1 span{color:var(--dim);}
+  .sub{
+    color:var(--dim);
+    font-size:15px;
+    line-height:1.6;
+    max-width:58ch;
+    margin:0 0 8px;
+  }
+  .sub b{color:var(--text);font-weight:600;}
+  .sub-note{
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--dim);
+    opacity:0.75;
+    letter-spacing:0.02em;
+    margin:0 0 40px;
+  }
+
+  /* ── layout: phone frame + side notes ── */
+  .stage{
+    display:grid;
+    grid-template-columns:340px 1fr;
+    gap:34px;
+    align-items:start;
+  }
+  @media (max-width:760px){
+    .stage{grid-template-columns:1fr;}
+  }
+
+  /* Android/Termux phone frame — the signature element */
+  .phone{
+    background:#050603;
+    border-radius:34px;
+    padding:14px 12px;
+    box-shadow:
+      0 0 0 1px #26291f,
+      0 30px 60px -20px rgba(0,0,0,0.7);
+    position:relative;
+  }
+  .phone::before{
+    content:"";
+    position:absolute;
+    top:14px; left:50%;
+    transform:translateX(-50%);
+    width:64px; height:6px;
+    border-radius:4px;
+    background:#1c1f17;
+  }
+  .statusbar{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    color:var(--dim);
+    padding:8px 10px 6px;
+    letter-spacing:0.02em;
+  }
+  .statusbar .app{color:var(--green);font-weight:600;}
+  .screen{
+    background:var(--panel2);
+    border-radius:18px;
+    border:1px solid var(--hair);
+    overflow:hidden;
+  }
+  .termhead{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    padding:9px 12px;
+    border-bottom:1px solid var(--hair);
+    font-family:'JetBrains Mono',monospace;
+    font-size:10.5px;
+    color:var(--dim);
+  }
+  .termhead .acct{color:var(--orange);font-weight:600;}
+  .term{
+    padding:14px 12px 16px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11.5px;
+    line-height:1.6;
+    height:520px;
+    overflow-y:auto;
+    white-space:pre-wrap;
+    word-break:break-word;
+    scroll-behavior:smooth;
+  }
+  .term::-webkit-scrollbar{width:6px;}
+  .term::-webkit-scrollbar-track{background:transparent;}
+  .term::-webkit-scrollbar-thumb{background:var(--hair);border-radius:4px;}
+  .term .menu{color:var(--text);}
+  .term .menu .num{color:var(--cyan);}
+  .term .prompt{color:var(--green);}
+  .term .input{color:#fff;}
+  .term .ok{color:var(--green);}
+  .term .warn{color:var(--yellow);}
+  .term .err{color:var(--red);}
+  .term .info{color:var(--cyan);}
+  .term .dim{color:var(--dim);}
+  .term .head{
+    color:var(--dim);
+    font-size:10px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+    opacity:0.75;
+    margin:12px 0 4px;
+    padding-top:10px;
+    border-top:1px dashed var(--hair);
+  }
+  .term .head:first-child{margin-top:0;padding-top:0;border-top:none;}
+  .cursor{
+    display:inline-block;width:6px;height:12px;background:var(--green);
+    vertical-align:middle;margin-left:2px;
+    animation:blink 1s steps(1) infinite;
+  }
+  @keyframes blink{50%{opacity:0;}}
+
+  .navbar{
+    display:flex;
+    justify-content:space-between;
+    padding:9px 12px;
+    border-top:1px solid var(--hair);
+    font-family:'JetBrains Mono',monospace;
+    font-size:9.5px;
+    color:var(--dim);
+    letter-spacing:0.04em;
+  }
+
+  /* right column: annotation feed */
+  .notes{
+    display:flex;
+    flex-direction:column;
+    gap:10px;
+    padding-top:4px;
+  }
+  .note-card{
+    background:var(--panel);
+    border:1px solid var(--hair);
+    border-radius:var(--radius);
+    padding:12px 14px;
+    opacity:0.35;
+    transition:opacity 0.3s ease, border-color 0.3s ease;
+  }
+  .note-card.active{
+    opacity:1;
+    border-color:var(--green-dim);
+  }
+  .note-card .tag{
+    font-family:'JetBrains Mono',monospace;
+    font-size:10px;
+    letter-spacing:0.1em;
+    color:var(--green);
+    text-transform:uppercase;
+    margin-bottom:4px;
+  }
+  .note-card.active .tag{color:var(--orange);}
+  .note-card p{
+    margin:0;
+    font-size:13px;
+    line-height:1.55;
+    color:var(--text);
+  }
+
+  .controls{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    margin-top:16px;
+    font-family:'JetBrains Mono',monospace;
+    font-size:11px;
+    color:var(--dim);
+  }
+  button{
+    font-family:'JetBrains Mono',monospace;
+    background:transparent;
+    border:1px solid var(--hair);
+    color:var(--text);
+    padding:7px 14px;
+    border-radius:5px;
+    font-size:11.5px;
+    letter-spacing:0.04em;
+    cursor:pointer;
+    transition:border-color 0.2s ease,color 0.2s ease;
+  }
+  button:hover{border-color:var(--green);color:var(--green);}
+  button:focus-visible{outline:2px solid var(--green);outline-offset:2px;}
+  a{color:var(--orange);text-decoration:none;border-bottom:1px solid rgba(246,130,31,0.35);}
+  a:hover{border-bottom-color:var(--orange);}
+  a:focus-visible{outline:2px solid var(--green);outline-offset:2px;}
+
+  footer{
+    margin-top:38px;
+    padding-top:22px;
+    border-top:1px solid var(--hair);
+    font-size:13px;
+    color:var(--dim);
+    line-height:1.7;
+  }
+  footer .stack{font-family:'JetBrains Mono',monospace;font-size:11.5px;}
+
+  @media (prefers-reduced-motion:reduce){
+    .cursor{animation:none;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="eyebrow"><span class="dot"></span>TERMUX · CLOUDFLARE CLI DASHBOARD — SAMPLE SESSION</div>
+  <h1>cf<span>-</span>manager</h1>
+  <p class="sub">A single bash script that turns a phone into a Cloudflare control room — Workers, KV, D1, R2, multi-account switching, GitHub sync, and one-tap rollback, all from a Termux terminal. <b>Below is a walkthrough of a typical session</b>, screen by screen.</p>
+  <p class="sub-note">Illustrative only — the account, worker, and repo names shown are fictional. No live calls are made on page load.</p>
+
+  <div class="stage">
+    <div class="phone">
+      <div class="statusbar">
+        <span>9:41</span>
+        <span class="app">Termux</span>
+        <span>▮▮▮ 82%</span>
+      </div>
+      <div class="screen">
+        <div class="termhead"><span>~/script/cfmanager</span>&nbsp;·&nbsp;<span class="acct">acme-labs</span></div>
+        <div class="term" id="term" aria-live="polite"></div>
+        <div class="navbar"><span>◁</span><span>●</span><span>▢</span></div>
+      </div>
+    </div>
+
+    <div class="notes" id="notes">
+      <div class="note-card" data-id="0"><div class="tag">01 · Accounts</div><p>Multi-account switching — every stored Cloudflare account, one OAuth login each, swapped without re-authenticating.</p></div>
+      <div class="note-card" data-id="1"><div class="tag">02 · Workers</div><p>Lists live Workers straight from the account, no dashboard tab required.</p></div>
+      <div class="note-card" data-id="2"><div class="tag">03 · Deploy</div><p>A live TUI progress table redraws in place while the script deploys — built for a phone screen, not a wide terminal.</p></div>
+      <div class="note-card" data-id="3"><div class="tag">04 · KV</div><p>Namespace and key browsing with paginated listings, so large stores don't flood a small screen.</p></div>
+      <div class="note-card" data-id="4"><div class="tag">05 · D1</div><p>Query a database directly, or copy table data between databases in batches during a rename/sync.</p></div>
+      <div class="note-card" data-id="5"><div class="tag">06 · Rollback</div><p>Every deploy is backed up locally first, so a bad push is one confirm away from undone.</p></div>
+      <div class="note-card" data-id="6"><div class="tag">07 · GitHub sync</div><p>Pushes the working worker straight to a linked repo branch — deploy and version control in the same step.</p></div>
+    </div>
+  </div>
+
+  <div class="controls">
+    <span id="status">playing sample session…</span>
+    <button id="restart" type="button">restart ↺</button>
+  </div>
+
+  <footer>
+    <p><b style="color:var(--text)">Stack:</b> <span class="stack">Bash · curl · jq · openssl · Cloudflare API v4 · OAuth2+PKCE · wrangler (via proot-distro)</span></p>
+    <p>Full source: <a href="https://github.com/dumbCodesOnly/cfmanager" target="_blank" rel="noopener">github.com/dumbCodesOnly/cfmanager</a></p>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  const term = document.getElementById('term');
+  const statusEl = document.getElementById('status');
+  const restartBtn = document.getElementById('restart');
+  const noteCards = document.querySelectorAll('.note-card');
+
+  // Illustrative scripted session — fictional account/worker/repo names.
+  // No real calls are made; this is a timed playback for demonstration.
+  const script = [
+    { note:0, t:'head', text:'ACCOUNTS' },
+    { t:'prompt', text:'$ bash cfmanager.sh' },
+    { t:'menu', text:'  ' , parts:[['1','Switch account'],['2','Workers'],['3','KV / D1 / R2'],['4','Settings'],['0','Exit']]},
+    { t:'input', text:'> 1' },
+    { t:'menu', text:'  ', parts:[['1','acme-labs  (Free)'],['2','acme-staging  (Workers Paid)'],['3','+ Add account (OAuth)']]},
+    { t:'input', text:'> 2' },
+    { t:'ok', text:'✓ switched to acme-staging' },
+
+    { note:1, t:'head', text:'WORKERS' },
+    { t:'input', text:'> 2' },
+    { t:'result', text:
+`  1. edge-router          deployed 2h ago
+  2. checkout-api         deployed 1d ago
+  3. status-page          deployed 6d ago` },
+    { t:'dim', text:'  fetched 3 workers · 214ms' },
+
+    { note:2, t:'head', text:'DEPLOY' },
+    { t:'prompt', text:'> deploy edge-router' },
+    { t:'result', text:
+`  backing up current version...        ✓
+  bundling worker.js...                 ✓
+  uploading (128.4 KB)...                ⠴
+  binding KV, D1, ANALYTICS...           ·
+  activating...                          ·` },
+    { t:'ok', text:'✓ edge-router deployed · v42 · 3.1s' },
+
+    { note:3, t:'head', text:'KV' },
+    { t:'input', text:'> 3 → KV → checkout-sessions' },
+    { t:'result', text:
+`  sess:19a2  {"cart":3,"total":58.20}
+  sess:5f01  {"cart":1,"total":12.00}
+  sess:88bc  {"cart":0,"total":0.00}` },
+    { t:'dim', text:'  showing 3 of 1,204 keys · page 1/13' },
+
+    { note:4, t:'head', text:'D1' },
+    { t:'prompt', text:'> query orders_db "select count(*) from orders"' },
+    { t:'result', text:'  count(*)\n  8421' },
+    { t:'ok', text:'✓ 1 row · 88ms' },
+
+    { note:5, t:'head', text:'ROLLBACK' },
+    { t:'warn', text:'⚠ checkout-api p95 latency spiked after v17' },
+    { t:'prompt', text:'> rollback checkout-api → v16' },
+    { t:'input', text:'  Confirm rollback to v16? [y/N]: y' },
+    { t:'ok', text:'✓ checkout-api restored to v16 · local backup used' },
+
+    { note:6, t:'head', text:'GITHUB SYNC' },
+    { t:'prompt', text:'> push edge-router → acme/workers-repo:main' },
+    { t:'result', text:'  committing worker.js + wrangler.toml...' },
+    { t:'ok', text:'✓ pushed 2 files · commit 9c1e4ab' },
+
+    { t:'gap' },
+    { t:'prompt', text:'> ', final:true},
+  ];
+
+  let cancelled = false;
+
+  function setActive(id){
+    noteCards.forEach(c=>c.classList.toggle('active', c.dataset.id === String(id)));
+  }
+
+  function appendLine(cls, text){
+    const div = document.createElement('div');
+    div.className = cls;
+    div.textContent = text;
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+  }
+
+  function appendMenu(parts){
+    const div = document.createElement('div');
+    div.className = 'menu';
+    parts.forEach(([n,label])=>{
+      const line = document.createElement('div');
+      line.innerHTML = '  <span class="num">'+n+'.</span> '+label;
+      div.appendChild(line);
+    });
+    term.appendChild(div);
+    term.scrollTop = term.scrollHeight;
+  }
+
+  async function typeLine(cls, text, speed){
+    const el = document.createElement('div');
+    el.className = cls;
+    term.appendChild(el);
+    for(let i=0;i<text.length;i++){
+      if(cancelled) return;
+      el.textContent += text[i];
+      term.scrollTop = term.scrollHeight;
+      await sleep(speed);
+    }
+  }
+
+  function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
+
+  async function run(){
+    cancelled = false;
+    term.innerHTML = '';
+    setActive(-1);
+    statusEl.textContent = 'playing sample session…';
+
+    for(const line of script){
+      if(cancelled) return;
+
+      if(line.note !== undefined) setActive(line.note);
+
+      if(line.t === 'gap'){ await sleep(450); continue; }
+
+      if(line.t === 'head'){
+        appendLine('head', line.text);
+        await sleep(300);
+        continue;
+      }
+
+      if(line.t === 'menu'){
+        appendMenu(line.parts);
+        await sleep(280);
+        continue;
+      }
+
+      if(line.t === 'prompt' && line.final){
+        const el=document.createElement('div');
+        el.className='prompt';
+        el.innerHTML='&gt; <span class="cursor"></span>';
+        term.appendChild(el);
+        statusEl.textContent = 'done — sample session, 7 screens';
+        return;
+      }
+
+      // Typewriter reveal runs regardless of reduced-motion (it's a text
+      // reveal, not a parallax/zoom effect); only the blinking cursor loop
+      // is muted via CSS for prefers-reduced-motion.
+      if(line.t === 'prompt'){
+        await typeLine('prompt', line.text, 22);
+        await sleep(200);
+      } else if(line.t === 'input'){
+        await typeLine('input', line.text, 26);
+        await sleep(320);
+      } else if(line.t === 'result'){
+        appendLine('result', line.text);
+        await sleep(700);
+      } else if(line.t === 'ok'){
+        appendLine('ok', line.text);
+        await sleep(350);
+      } else if(line.t === 'warn'){
+        appendLine('warn', line.text);
+        await sleep(350);
+      } else if(line.t === 'dim'){
+        appendLine('dim', line.text);
+        await sleep(350);
+      }
+    }
+  }
+
+  restartBtn.addEventListener('click', ()=>{
+    cancelled = true;
+    setTimeout(run, 50);
+  });
+
+  run();
+})();
+</script>
+</body>
+</html>
